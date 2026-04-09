@@ -290,12 +290,95 @@
 
 /* ===== DEBATE PHASE ===== */
 .debate-phase {
-  max-width: 1000px;
+  max-width: 1300px;
   margin: 0 auto;
-  display: flex;
-  flex-direction: column;
+  display: block;
   height: calc(100vh - 100px);
   padding: 20px;
+}
+
+.debate-layout {
+  display: grid;
+  grid-template-columns: minmax(290px, 360px) 1fr;
+  gap: 20px;
+  height: 100%;
+}
+
+.case-reference-sidebar {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 160px);
+  position: sticky;
+  top: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.reference-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.reference-header h3 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.reference-header span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.reference-section {
+  margin-bottom: 14px;
+}
+
+.reference-section h4 {
+  margin: 0 0 6px 0;
+  color: var(--accent-2);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+.reference-section p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.reference-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reference-section li {
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.debate-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .debate-header {
@@ -794,6 +877,17 @@
   .debate-phase {
     height: auto;
     min-height: 100vh;
+    padding: 12px;
+  }
+
+  .debate-layout {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .case-reference-sidebar {
+    position: static;
+    max-height: none;
   }
 
   .debate-transcript {

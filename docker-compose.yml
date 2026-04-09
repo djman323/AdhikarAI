@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      PORT: 5000
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash-lite}
+      GEMINI_FALLBACK_MODELS: ${GEMINI_FALLBACK_MODELS:-gemini-2.0-flash-lite,gemini-2.0-flash,gemini-1.5-flash-latest}
+      GEMINI_MODEL_DISCOVERY: ${GEMINI_MODEL_DISCOVERY:-1}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      ADHIKAR_RESPONSE_STYLE: ${ADHIKAR_RESPONSE_STYLE:-friendly_concise}
+      ADHIKAR_DATA_DIR: /app/data
+      ADHIKAR_DB_PATH: /app/data/adhikar.sqlite3
+    volumes:
+      - ./data:/app/data
+      - ./vectorstore:/app/vectorstore
+    ports:
+      - "5000:5000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:5000}
+    depends_on:
+      - backend
+    ports:
+      - "5500:3000"

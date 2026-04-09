@@ -141,9 +141,20 @@ export default function ChatPage() {
         }),
       });
 
-      const payload = await response.json();
+      const text = await response.text();
+      let payload;
+
+      // Try to parse as JSON
+      try {
+        payload = JSON.parse(text);
+      } catch (parseError) {
+        // Not valid JSON - log what we got
+        console.error(`Backend returned non-JSON (${response.status}):`, text);
+        throw new Error(`Backend error (${response.status}): ${text.substring(0, 200) || "Empty response"}`);
+      }
+
       if (!response.ok) {
-        throw new Error(payload.error || "Request failed");
+        throw new Error(payload.error || `Request failed with status ${response.status}`);
       }
 
       if (payload.response_style) {

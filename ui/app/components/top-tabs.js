@@ -7,6 +7,7 @@ const TABS = [
   { href: "/", label: "Home" },
   { href: "/chat", label: "Chat" },
   { href: "/courtroom", label: "Courtroom" },
+  { href: "/contracts", label: "Contracts" },
 ];
 
 export default function TopTabs() {

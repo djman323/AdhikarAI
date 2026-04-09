@@ -18,6 +18,7 @@ const LAW_PILLARS = [
   "Writ Remedies",
   "Judicial Review",
   "Directive Principles",
+  "Contract Drafting",
 ];
 
 const TRUST_POINTS = [
@@ -139,6 +140,9 @@ export default function Page() {
                   {prompt}
                 </Link>
               ))}
+              <Link href="/contracts" className="quick-prompt-btn quick-prompt-btn--wide">
+                Draft a professional legal contract
+              </Link>
             </div>
           </div>
         </aside>
@@ -165,6 +169,20 @@ export default function Page() {
             <p className="panel-note">1. Open Chat tab.</p>
             <p className="panel-note">2. Choose tone preset and ask your question.</p>
             <p className="panel-note">3. Review linked sources and continue follow-ups.</p>
+            <p className="panel-note">4. Open Contracts tab for structured legal and professional contract drafts.</p>
+          </div>
+
+          <div className="panel-card">
+            <div className="panel-header">
+              <h3>Contracts Tab</h3>
+              <span className="status-badge status-badge--ready">New</span>
+            </div>
+            <p className="panel-note">Generate first drafts for employment, NDA, service, freelance, lease, and vendor agreements.</p>
+            <div className="hero-actions">
+              <Link href="/contracts" className="hero-button hero-button--secondary">
+                Open Contracts Workspace
+              </Link>
+            </div>
           </div>
         </section>
       </section>

@@ -7,6 +7,7 @@ export function getBackendBaseUrl() {
 
 export async function proxyJsonRequest(path, request) {
   const backendUrl = new URL(path, getBackendBaseUrl());
+  const timeoutMs = Number(process.env.BACKEND_PROXY_TIMEOUT_MS || 45000);
 
   let apiKey;
   if (path.startsWith("/chat")) {
@@ -35,7 +36,26 @@ export async function proxyJsonRequest(path, request) {
     init.body = await request.text();
   }
 
-  const response = await fetch(backendUrl, init);
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(backendUrl, { ...init, signal: controller.signal });
+  } catch (error) {
+    const message =
+      error?.name === "AbortError"
+        ? `Backend request timed out after ${timeoutMs}ms`
+        : "Backend is unreachable";
+
+    return new Response(JSON.stringify({ error: message }), {
+      status: 504,
+      headers: { "Content-Type": "application/json" },
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+
   const contentType = response.headers.get("content-type") || "application/json";
   const body = await response.text();
 

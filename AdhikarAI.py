@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import threading
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_REQUEST_BYTES", "1048576"))
 
 
 def _cors_origins_from_env() -> str | List[str]:
@@ -42,29 +44,42 @@ GEMINI_FALLBACK_MODELS = [
 class CourtroomStore:
     def __init__(self) -> None:
         self.sessions: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.RLock()
 
     def create_session(self, session_id: str, case_id: str, case_details: Dict[str, Any]) -> None:
-        self.sessions[session_id] = {
-            "session_id": session_id,
-            "case_id": case_id,
-            "case_details": case_details,
-            "turns": [],
-        }
+        with self._lock:
+            self.sessions[session_id] = {
+                "session_id": session_id,
+                "case_id": case_id,
+                "case_details": case_details,
+                "turns": [],
+            }
 
     def get_session(self, session_id: str) -> Dict[str, Any] | None:
-        return self.sessions.get(session_id)
+        with self._lock:
+            session = self.sessions.get(session_id)
+            if not session:
+                return None
+            # Return a shallow copy to avoid accidental mutation outside the lock.
+            return {
+                "session_id": session.get("session_id"),
+                "case_id": session.get("case_id"),
+                "case_details": dict(session.get("case_details", {})),
+                "turns": list(session.get("turns", [])),
+            }
 
     def add_turn(self, session_id: str, student: str, judge: str, lawyer: str) -> None:
-        session = self.sessions.get(session_id)
-        if not session:
-            return
-        session["turns"].append(
-            {
-                "student": student,
-                "judge": judge,
-                "lawyer": lawyer,
-            }
-        )
+        with self._lock:
+            session = self.sessions.get(session_id)
+            if not session:
+                return
+            session["turns"].append(
+                {
+                    "student": student,
+                    "judge": judge,
+                    "lawyer": lawyer,
+                }
+            )
 
 
 courtroom_store = CourtroomStore()
@@ -122,6 +137,7 @@ def invoke_llm_with_fallback(prompt: str, fallback_text: str, temperature: float
                 google_api_key=GEMINI_API_KEY,
                 temperature=temperature,
                 max_output_tokens=512,
+                timeout=30,
             )
             output = llm.invoke(prompt)
             text = _extract_text(output).strip()
@@ -249,7 +265,13 @@ def evaluate_session(turns: List[Dict[str, str]]) -> Dict[str, Any]:
 
 @app.route("/health", methods=["GET"])
 def health() -> Any:
-    return jsonify({"status": "ok"})
+    return jsonify(
+        {
+            "status": "ok",
+            "service": "adhikar-backend",
+            "provider": "gemini" if GEMINI_API_KEY else "fallback-only",
+        }
+    )
 
 
 @app.route("/courtroom/start", methods=["POST"])
@@ -261,6 +283,8 @@ def courtroom_start() -> Any:
 
     if not session_id or not isinstance(case_details, dict):
         return jsonify({"error": "Session ID and case details are required"}), 400
+    if len(session_id) > 120:
+        return jsonify({"error": "Session ID is too long"}), 400
 
     courtroom_store.create_session(session_id, case_id, case_details)
     opening = generate_judge_opening(case_details)
@@ -287,6 +311,8 @@ def courtroom_turn() -> Any:
 
     if not session_id or not student_argument:
         return jsonify({"error": "Session ID and argument are required"}), 400
+    if len(student_argument) > 8000:
+        return jsonify({"error": "Argument is too long"}), 400
 
     session = courtroom_store.get_session(session_id)
     if not session:
@@ -330,6 +356,8 @@ def chat() -> Any:
     query = str(data.get("query", "")).strip()
     if not query:
         return jsonify({"error": "Query parameter is missing"}), 400
+    if len(query) > 8000:
+        return jsonify({"error": "Query is too long"}), 400
 
     fallback = "Please share your legal question with a little more detail so I can assist effectively."
     prompt = (
@@ -353,5 +381,6 @@ def chat() -> Any:
 if __name__ == "__main__":
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "5000"))
+    debug_mode = os.getenv("FLASK_DEBUG", "0").strip().lower() in {"1", "true", "yes"}
     print(f"[INFO] Starting Adhikar AI backend on http://{host}:{port}")
-    app.run(debug=True, host=host, port=port)
+    app.run(debug=debug_mode, host=host, port=port)

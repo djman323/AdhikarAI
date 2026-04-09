@@ -1,0 +1,2 @@
+# AdhikarAI
+Leagal advisory  AI

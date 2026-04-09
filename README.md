@@ -123,6 +123,24 @@ This repository now uses a same-origin UI proxy, so Railway only needs the backe
 - Sign in to Railway and connect GitHub
 - Create a new project from this repository
 
+### Important: Fix for "Error creating build plan with Railpack"
+
+This repo now includes explicit Railpack configs for both services:
+
+- Backend: [nixpacks.toml](nixpacks.toml) and [Procfile](Procfile)
+- UI: [ui/nixpacks.toml](ui/nixpacks.toml) and [ui/Procfile](ui/Procfile)
+
+If Railway previously failed with build-plan errors, redeploy using these settings exactly:
+
+- Backend service:
+  - Root Directory: `/`
+  - Builder: `Railpack` (or `Dockerfile.backend` if you prefer Docker)
+  - Start Command: leave empty (taken from config files)
+- UI service:
+  - Root Directory: `/ui`
+  - Builder: `Railpack` (or `ui/Dockerfile` if you prefer Docker)
+  - Start Command: leave empty (taken from config files)
+
 ### 2) Deploy two services
 
 - Service 1: backend from repo root using [Dockerfile.backend](Dockerfile.backend)

@@ -7,6 +7,18 @@ export function getBackendBaseUrl() {
 
 export async function proxyJsonRequest(path, request) {
   const backendUrl = new URL(path, getBackendBaseUrl());
+
+  let apiKey;
+  if (path.startsWith("/chat")) {
+    apiKey = process.env.CHAT_API_KEY;
+  } else if (path.startsWith("/courtroom/turn")) {
+    // In the courtroom, the user is the lawyer
+    apiKey = process.env.LAWYER_API_KEY;
+  } else if (path.startsWith("/courtroom/evaluate") || path.startsWith("/courtroom/start")) {
+    // Assume judge key for starting and evaluating
+    apiKey = process.env.JUDGE_API_KEY;
+  }
+
   const init = {
     method: request.method,
     headers: {
@@ -14,6 +26,10 @@ export async function proxyJsonRequest(path, request) {
     },
     cache: "no-store",
   };
+
+  if (apiKey) {
+    init.headers["X-API-Key"] = apiKey;
+  }
 
   if (request.method !== "GET" && request.method !== "HEAD") {
     init.body = await request.text();

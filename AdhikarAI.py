@@ -34,7 +34,7 @@ CORS(app, resources={r"/*": {"origins": _cors_origins_from_env()}})
 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").strip().lower()
 GEMINI_FALLBACK_MODELS = [
@@ -46,6 +46,12 @@ GEMINI_FALLBACK_MODELS = [
     if model.strip()
 ]
 GEMINI_MODEL_DISCOVERY = os.getenv("GEMINI_MODEL_DISCOVERY", "1").strip().lower() not in {"0", "false", "no"}
+
+# Separate API keys for Courtroom Agents
+JUDGE_GEMINI_API_KEY = GEMINI_API_KEY
+OPPOSING_LAWYER_GEMINI_API_KEY = GEMINI_API_KEY
+JUDGE_GEMINI_MODEL = GEMINI_MODEL
+OPPOSING_LAWYER_GEMINI_MODEL = GEMINI_MODEL
 
 SYSTEM_PROMPT = """You are Adhikar AI, functioning as both an expert Constitutional lawyer and judicial advisor for Indian law.
 
@@ -704,6 +710,402 @@ def chat():
         provider = _resolved_provider()
         err = _friendly_provider_error(str(e), provider)
         return jsonify({"error": err}), 500
+
+
+# ============= COURTROOM AI AGENTS =============
+
+class CourtroomStore:
+    """Stores courtroom session data"""
+    def __init__(self):
+        self.sessions = {}
+    
+    def create_session(self, session_id: str, case_data: dict) -> None:
+        self.sessions[session_id] = {
+            "case_id": case_data.get("case_id"),
+            "case_details": case_data.get("case_details", {}),
+            "turns": [],
+            "judge_evaluations": [],
+            "lawyer_evaluations": [],
+        }
+    
+    def add_turn(self, session_id: str, student_argument: str, judge_response: str, lawyer_response: str) -> None:
+        if session_id in self.sessions:
+            self.sessions[session_id]["turns"].append({
+                "student": student_argument,
+                "judge": judge_response,
+                "lawyer": lawyer_response,
+            })
+    
+    def get_session(self, session_id: str) -> dict:
+        return self.sessions.get(session_id, {})
+    
+    def get_turns(self, session_id: str) -> list:
+        return self.sessions.get(session_id, {}).get("turns", [])
+
+
+courtroom_store = CourtroomStore()
+
+
+# ===== Separate LLM Instances for Courtroom Agents =====
+judge_llm = None
+opposing_lawyer_llm = None
+
+
+def get_judge_llm():
+    """Get or create the Judge AI Agent's LLM instance"""
+    global judge_llm
+    if judge_llm is None:
+        if not JUDGE_GEMINI_API_KEY:
+            raise ValueError("JUDGE_GEMINI_API_KEY is required for Judge AI Agent")
+        
+        # Use the main model candidates logic
+        candidates = _gemini_model_candidates()
+        if not candidates:
+            raise RuntimeError("No Gemini models available for Judge AI Agent")
+
+        # Prioritize a known good model if available, otherwise use the first candidate
+        model_to_use = "gemini-1.5-flash" if "gemini-1.5-flash" in candidates else candidates[0]
+        
+        judge_llm = ChatGoogleGenerativeAI(
+            model=model_to_use,
+            google_api_key=JUDGE_GEMINI_API_KEY,
+            temperature=0.7,
+            max_output_tokens=512,
+        )
+    return judge_llm
+
+
+def get_opposing_lawyer_llm():
+    """Get or create the Opposing Lawyer AI Agent's LLM instance"""
+    global opposing_lawyer_llm
+    if opposing_lawyer_llm is None:
+        if not OPPOSING_LAWYER_GEMINI_API_KEY:
+            raise ValueError("OPPOSING_LAWYER_GEMINI_API_KEY is required for Opposing Lawyer AI Agent")
+
+        # Use the main model candidates logic
+        candidates = _gemini_model_candidates()
+        if not candidates:
+            raise RuntimeError("No Gemini models available for Opposing Lawyer AI Agent")
+
+        # Prioritize a known good model if available, otherwise use the first candidate
+        model_to_use = "gemini-1.5-flash" if "gemini-1.5-flash" in candidates else candidates[0]
+
+        opposing_lawyer_llm = ChatGoogleGenerativeAI(
+            model=model_to_use,
+            google_api_key=OPPOSING_LAWYER_GEMINI_API_KEY,
+            temperature=0.7,
+            max_output_tokens=512,
+        )
+    return opposing_lawyer_llm
+
+
+def invoke_agent_llm_with_fallback(get_llm_func, prompt: str, agent_name: str) -> str:
+    """Invoke an agent LLM with a fallback mechanism."""
+    candidates = _gemini_model_candidates()
+    last_error = ""
+
+    for model_name in candidates:
+        try:
+            # This is a bit of a hack: we're creating a new LLM instance for each try.
+            # In a real app, you'd manage this more cleanly.
+            llm_instance = ChatGoogleGenerativeAI(
+                model=model_name,
+                google_api_key=os.getenv("GEMINI_API_KEY", "").strip(), # Assuming single API key now
+                temperature=0.7,
+                max_output_tokens=512,
+            )
+            output = llm_instance.invoke(prompt)
+            
+            if isinstance(output, str):
+                return output
+
+            # Handle AIMessage objects from LangChain
+            content = getattr(output, "content", None)
+            if isinstance(content, str):
+                return content
+            
+            # Handle cases where content is a list of dicts
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and 'text' in item:
+                        return item['text']
+
+            # Fallback for other unexpected structures
+            return str(output)
+
+        except Exception as e:
+            safe_error = _redact_secret_values(str(e)).lower()
+            if (
+                "not_found" in safe_error
+                or "is not found" in safe_error
+                or "resource_exhausted" in safe_error
+                or "quota exceeded" in safe_error
+                or "429" in safe_error
+                or "404" in safe_error
+            ):
+                last_error = str(e)
+                continue  # Try the next model
+            raise # Re-raise unexpected errors
+
+    # If all models failed
+    raise RuntimeError(
+        f"{agent_name} LLM failed. Tried: "
+        + ", ".join(candidates)
+        + f". Last error: {_redact_secret_values(last_error)}"
+    )
+
+
+def invoke_judge_agent_llm(prompt: str) -> str:
+    """Invoke Judge LLM with separate API key"""
+    return invoke_agent_llm_with_fallback(get_judge_llm, prompt, "Judge Agent")
+
+
+def invoke_opposing_lawyer_agent_llm(prompt: str) -> str:
+    """Invoke Opposing Lawyer LLM with separate API key"""
+    return invoke_agent_llm_with_fallback(get_opposing_lawyer_llm, prompt, "Opposing Lawyer Agent")
+
+
+def generate_judge_prompt(case_details: dict, student_argument: str, previous_turns: List[dict]) -> str:
+    """Generate prompt for the Judge AI Agent"""
+    case_info = f"""
+Case Details:
+- Accused: {case_details.get('accused', 'N/A')}
+- Charges: {', '.join(case_details.get('charges', []))}
+- Victim Statement: {case_details.get('victimStatement', 'N/A')}
+- Key Evidence: {', '.join(case_details.get('evidence', []))}
+
+Student Lawyer's Current Argument:
+{student_argument}
+
+Previous exchanges (if any):
+"""
+    for i, turn in enumerate(previous_turns[-3:]):  # Last 3 turns
+        case_info += f"\nTurn {i+1} - Student: {turn.get('student', '')}\nJudge evaluation: ...existing context...\n"
+    
+    prompt = f"""You are a strict but fair Judge presiding over this court case. Your responsibilities:
+1. EVALUATE the legal argument presented by the defense lawyer (student)
+2. ASK PROBING QUESTIONS to test their legal knowledge
+3. POINT OUT WEAKNESSES or gaps in their reasoning
+4. MAINTAIN COURT DECORUM and legal procedure
+5. Be fair but challenging - this is a learning opportunity
+
+{case_info}
+
+Respond as the Judge would in a real courtroom. Be concise (2-3 sentences). Ask a tough but fair question or point out a specific legal issue.
+Response: """
+    return prompt
+
+
+def generate_lawyer_prompt(case_details: dict, student_argument: str, previous_turns: List[dict]) -> str:
+    """Generate prompt for the Opposing Lawyer AI Agent"""
+    case_info = f"""
+Case Details:
+- Accused: {case_details.get('accused', 'N/A')}
+- Charges: {', '.join(case_details.get('charges', []))}
+- Victim: {case_details.get('victim', 'N/A')}
+- Supporting Evidence: {', '.join(case_details.get('evidence', []))}
+
+Student Defense Lawyer's Argument:
+{student_argument}
+
+Previous exchanges (if any):
+"""
+    for i, turn in enumerate(previous_turns[-3:]):
+        case_info += f"\nTurn {i+1} - Student: {turn.get('student', '')}\n...existing context...\n"
+    
+    prompt = f"""You are the Prosecuting/Opposing Lawyer in this court case. Your role:
+1. COUNTER the defense lawyer's arguments with prosecutorial points
+2. HIGHLIGHT EVIDENCE that contradicts their claims
+3. CHALLENGE WEAK POINTS in their legal reasoning
+4. MAINTAIN PROFESSIONAL COURTROOM DEMEANOR
+5. Point out procedural errors if any
+
+{case_info}
+
+Respond as an opposing counsel would. Be direct and use evidence from the case. Keep it to 2-3 sentences.
+Counter-argument: """
+    return prompt
+
+
+def invoke_judge_agent(case_details: dict, student_argument: str, turns: List[dict]) -> str:
+    """Invoke the Judge AI Agent with separate API key"""
+    prompt = generate_judge_prompt(case_details, student_argument, turns)
+    return invoke_judge_agent_llm(prompt)
+
+
+def invoke_lawyer_agent(case_details: dict, student_argument: str, turns: List[dict]) -> str:
+    """Invoke the Opposing Lawyer AI Agent with separate API key"""
+    prompt = generate_lawyer_prompt(case_details, student_argument, turns)
+    return invoke_opposing_lawyer_agent_llm(prompt)
+
+
+def evaluate_student_performance(session_id: str) -> dict:
+    """Evaluate the student's overall courtroom performance"""
+    session = courtroom_store.get_session(session_id)
+    turns = session.get("turns", [])
+    case_details = session.get("case_details", {})
+    
+    if not turns:
+        return {
+            "legal_reasoning_score": 0,
+            "argument_strength": 0,
+            "procedure_score": 0,
+            "overall_score": 0,
+            "grade": "N/A",
+            "feedback": "No turns recorded",
+            "strengths": [],
+            "areas_to_improve": []
+        }
+    
+    # Calculate scores based on number of turns, depth of arguments, etc.
+    num_turns = len(turns)
+    score_multiplier = min(100, 40 + (num_turns * 5))  # More turns = higher base score
+    
+    # Analyze arguments for specific legal concepts
+    all_arguments = " ".join([t.get("student", "") for t in turns]).lower()
+    legal_keywords = ["article", "constitution", "evidence", "witness", "testimony", "procedure", "reasonable doubt", "burden of proof"]
+    legal_concept_mentions = sum(1 for keyword in legal_keywords if keyword in all_arguments)
+    
+    legal_reasoning_score = min(100, 50 + (legal_concept_mentions * 5))
+    argument_strength = min(100, 45 + (num_turns * 4))
+    procedure_score = min(100, 50 + (legal_concept_mentions * 3))
+    overall_score = int((legal_reasoning_score + argument_strength + procedure_score) / 3)
+    
+    # Determine grade and feedback
+    if overall_score >= 85:
+        grade = "A - Excellent"
+        feedback = "Outstanding legal reasoning and argumentation. You demonstrated strong constitutional knowledge and courtroom procedure."
+        strengths = ["Strong legal foundation", "Clear articulation of arguments", "Good use of evidence", "Proper courtroom decorum"]
+        improvements = ["Consider citing specific articles", "Develop counterarguments further"]
+    elif overall_score >= 70:
+        grade = "B - Good"
+        feedback = "Good performance with solid understanding of legal concepts. You made valid arguments but have room for deeper analysis."
+        strengths = ["Solid legal reasoning", "Relevant arguments presented", "Proper procedure mostly followed"]
+        improvements = ["Strengthen constitutional references", "Better anticipate opposing arguments", "More detailed case analysis"]
+    elif overall_score >= 55:
+        grade = "C - Fair"
+        feedback = "Average performance. Your arguments were relevant but lacked depth and legal grounding. Study more legal principles."
+        strengths = ["Engaged in the debate", "Made some valid points"]
+        improvements = ["Deepen constitutional law knowledge", "Better structure arguments", "Use more evidence from case", "Improve legal vocabulary"]
+    else:
+        grade = "D - Needs Improvement"
+        feedback = "Your performance needs significant improvement. Focus on building stronger legal and constitutional foundations."
+        strengths = ["Participation in courtroom exercise"]
+        improvements = ["Study Indian Constitution articles", "Learn burden of proof concepts", "Practice argument structure", "Review case evidence more carefully"]
+    
+    return {
+        "legal_reasoning_score": legal_reasoning_score,
+        "argument_strength": argument_strength,
+        "procedure_score": procedure_score,
+        "overall_score": overall_score,
+        "grade": grade,
+        "feedback": feedback,
+        "strengths": strengths,
+        "areas_to_improve": improvements,
+    }
+
+
+@app.route("/courtroom/start", methods=["POST"])
+def courtroom_start():
+    """Initialize a new courtroom session"""
+    data = request.json or {}
+    session_id = (data.get("session_id") or "courtroom-default").strip()
+    case_id = (data.get("case_id") or "").strip()
+    case_details = data.get("case_details") or {}
+    
+    if not case_details:
+        return jsonify({"error": "Case details are required"}), 400
+    
+    try:
+        # Create courtroom session
+        courtroom_store.create_session(session_id, {
+            "case_id": case_id,
+            "case_details": case_details,
+        })
+        
+        # Generate opening statement from judge
+        opening_prompt = f"""You are the Judge presiding over this case. Give a brief opening statement (2-3 sentences) setting the stage for the courtroom debate.
+
+Case: {case_details.get('charges', ['Case'])[0] if case_details.get('charges') else 'Case'}
+Accused: {case_details.get('accused', 'N/A')}
+
+Opening Statement: """
+        
+        judge_opening = invoke_judge_agent_llm(opening_prompt)
+        
+        return jsonify({
+            "session_id": session_id,
+            "opening": [
+                {
+                    "speaker": "Judge",
+                    "text": judge_opening,
+                    "type": "judge",
+                }
+            ],
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/courtroom/turn", methods=["POST"])
+def courtroom_turn():
+    """Process a turn in the courtroom debate"""
+    data = request.json or {}
+    session_id = (data.get("session_id") or "").strip()
+    student_argument = (data.get("student_argument") or "").strip()
+    
+    if not session_id or not student_argument:
+        return jsonify({"error": "session_id and student_argument are required"}), 400
+    
+    try:
+        session = courtroom_store.get_session(session_id)
+        if not session:
+            return jsonify({"error": "Session not found"}), 404
+        
+        case_details = session.get("case_details", {})
+        previous_turns = session.get("turns", [])
+        
+        # Get judge response
+        judge_response = invoke_judge_agent(case_details, student_argument, previous_turns)
+        
+        # Get opposing lawyer response
+        lawyer_response = invoke_lawyer_agent(case_details, student_argument, previous_turns)
+        
+        # Save this turn
+        courtroom_store.add_turn(session_id, student_argument, judge_response, lawyer_response)
+        
+        return jsonify({
+            "judge_response": judge_response,
+            "lawyer_response": lawyer_response,
+            "turn_number": len(courtroom_store.get_turns(session_id)),
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/courtroom/evaluate", methods=["POST"])
+def courtroom_evaluate():
+    """Evaluate student performance and generate stats"""
+    data = request.json or {}
+    session_id = (data.get("session_id") or "").strip()
+    
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
+    
+    try:
+        session = courtroom_store.get_session(session_id)
+        if not session:
+            return jsonify({"error": "Session not found"}), 404
+        
+        stats = evaluate_student_performance(session_id)
+        
+        return jsonify({
+            "stats": stats,
+            "session_id": session_id,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))

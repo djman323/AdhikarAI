@@ -1,3 +1,4 @@
+
 """Add algorithms slides to existing PPTX presentation."""
 
 from pptx import Presentation

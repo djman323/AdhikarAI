@@ -145,6 +145,11 @@ textarea:focus-visible {
   padding-top: 28px;
 }
 
+.app-shell--chat {
+  display: flex;
+  flex-direction: column;
+}
+
 .scene-bg {
   position: fixed;
   inset: 0;
@@ -537,6 +542,13 @@ textarea:focus-visible {
   margin: 0 auto;
 }
 
+.app-shell--chat .workspace-grid {
+  width: 100%;
+  flex: 1;
+  min-height: calc(100vh - 140px);
+  align-items: stretch;
+}
+
 .workspace-grid--home {
   align-items: stretch;
 }
@@ -676,7 +688,8 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: clamp(620px, 80vh, 920px);
+  min-height: calc(100vh - 170px);
+  height: 100%;
   overflow: hidden;
 }
 
@@ -702,6 +715,7 @@ textarea:focus-visible {
 .chat-container {
   flex: 1;
   min-height: 0;
+  display: flex;
   overflow-y: auto;
   padding: 24px;
 }
@@ -716,8 +730,20 @@ textarea:focus-visible {
 }
 
 .messages-wrapper {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   gap: 16px;
+  min-height: 100%;
+  width: 100%;
+}
+
+.messages-wrapper--empty {
+  justify-content: flex-start;
+}
+
+.messages-wrapper--empty .empty-state {
+  margin-top: 4px;
 }
 
 .empty-state {
@@ -836,6 +862,7 @@ textarea:focus-visible {
 }
 
 .composer-section {
+  margin-top: auto;
   padding: 0 24px 24px;
 }
 
@@ -1066,14 +1093,22 @@ textarea:focus-visible {
     min-height: 560px;
   }
 
+  .app-shell--chat .workspace-grid {
+    min-height: auto;
+  }
+
   .chat-panel {
-    height: clamp(560px, 76vh, 820px);
+    min-height: calc(100vh - 150px);
   }
 }
 
 @media (max-width: 1024px) {
+  .app-shell--chat .workspace-grid {
+    min-height: auto;
+  }
+
   .chat-panel {
-    height: 74vh;
+    min-height: calc(100vh - 130px);
   }
 }
 
@@ -1149,10 +1184,6 @@ textarea:focus-visible {
     max-width: 100%;
   }
 
-  .chat-panel {
-    height: 72vh;
-  }
-
   .composer-form {
     flex-direction: column;
   }
@@ -1163,6 +1194,10 @@ textarea:focus-visible {
 
   .composer-section--floating {
     position: static;
+  }
+
+  .chat-panel {
+    min-height: auto;
   }
 }
 

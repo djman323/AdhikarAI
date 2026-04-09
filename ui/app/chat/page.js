@@ -257,7 +257,7 @@ export default function ChatPage() {
           </header>
 
           <div className="chat-container" ref={chatRef}>
-            <div className="messages-wrapper">
+            <div className={`messages-wrapper ${messages.length === 0 ? "messages-wrapper--empty" : ""}`}>
               {messages.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-state__badge">Welcome to Adhikar AI</div>

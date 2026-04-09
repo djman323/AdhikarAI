@@ -105,32 +105,42 @@ export default function CourtroomPage() {
       const newSessionId = generateUUID();
       setSessionId(newSessionId);
 
+      const requestPayload = {
+        session_id: newSessionId,
+        case_id: caseData.id,
+        case_details: caseData.caseDetails,
+      };
+      
+      console.log("[COURTROOM] Starting session with payload:", requestPayload);
+
       const response = await fetch("/api/courtroom/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: newSessionId,
-          case_id: caseData.id,
-          case_details: caseData.caseDetails,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
+      console.log("[COURTROOM] Response status:", response.status);
+      
       if (!response.ok) {
         let message = "Failed to start courtroom session";
         try {
           const payload = await response.json();
+          console.log("[COURTROOM] Error response:", payload);
           if (payload?.error) message = payload.error;
-        } catch {
-          // Keep fallback message if response body is not JSON.
+        } catch (e) {
+          console.log("[COURTROOM] Could not parse error response as JSON");
         }
         throw new Error(message);
       }
 
       const data = await response.json();
+      console.log("[COURTROOM] Success response:", data);
       setDebate(data.opening || []);
       setPhase("debating");
     } catch (err) {
+      console.error("[COURTROOM] Error:", err);
       setError(err.message || "Error starting courtroom session");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -148,27 +158,35 @@ export default function CourtroomPage() {
       const newDebate = [...debate, { speaker: "You (Defense Lawyer)", text: studentArgument, type: "student" }];
       setDebate(newDebate);
 
+      const requestPayload = {
+        session_id: sessionId,
+        student_argument: studentArgument,
+      };
+      
+      console.log("[COURTROOM] Submitting argument:", requestPayload);
+
       const response = await fetch("/api/courtroom/turn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          student_argument: studentArgument,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
+      console.log("[COURTROOM] Turn response status:", response.status);
+      
       if (!response.ok) {
         let message = "Failed to get courtroom response";
         try {
           const payload = await response.json();
+          console.log("[COURTROOM] Error response:", payload);
           if (payload?.error) message = payload.error;
-        } catch {
-          // Keep fallback message if response body is not JSON.
+        } catch (e) {
+          console.log("[COURTROOM] Could not parse error response as JSON");
         }
         throw new Error(message);
       }
 
       const data = await response.json();
+      console.log("[COURTROOM] Turn complete:", data);
 
       // Add judge and opposing lawyer responses
       if (data.judge_response) {
@@ -195,6 +213,7 @@ export default function CourtroomPage() {
         setTimeout(() => handleEndDebate(), 3000);
       }
     } catch (err) {
+      console.error("[COURTROOM] Error:", err);
       setError(err.message || "Error processing argument");
       setIsLoading(false);
     }
@@ -335,62 +354,121 @@ export default function CourtroomPage() {
       {/* Debate Phase */}
       {phase === "debating" && (
         <div className="phase-panel debate-phase">
-          <div className="debate-header">
-            <h2>{caseData?.title}</h2>
-            <div className="debate-stats">
-              <span>{Math.floor(debate.length / 2)} rounds</span>
-            </div>
-          </div>
-
-          <div className="debate-transcript">
-            {debate.map((msg, idx) => (
-              <div key={idx} className={`debate-message ${msg.type}`}>
-                <div className="speaker-badge">{msg.speaker}</div>
-                <div className="message-text">{msg.text}</div>
+          <div className="debate-layout">
+            <aside className="case-reference-sidebar">
+              <div className="reference-header">
+                <h3>Case Reference</h3>
+                <span>{Math.floor(debate.length / 2)} rounds</span>
               </div>
-            ))}
-            {isLoading && (
-              <div className="debate-message loading">
-                <div className="speaker-badge">Courtroom</div>
-                <div className="message-text">
-                  <span className="typing-indicator">●●●</span>
+
+              <div className="reference-section">
+                <h4>Case Title</h4>
+                <p>{caseData?.title}</p>
+              </div>
+
+              <div className="reference-section">
+                <h4>Victim</h4>
+                <p>{caseData?.caseDetails?.victim}</p>
+              </div>
+
+              <div className="reference-section">
+                <h4>Accused</h4>
+                <p>{caseData?.caseDetails?.accused}</p>
+              </div>
+
+              <div className="reference-section">
+                <h4>Charges</h4>
+                <ul>
+                  {(caseData?.caseDetails?.charges || []).map((charge, idx) => (
+                    <li key={idx}>{charge}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="reference-section">
+                <h4>Evidence</h4>
+                <ul>
+                  {(caseData?.caseDetails?.evidence || []).map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="reference-section">
+                <h4>Victim Statement</h4>
+                <p>{caseData?.caseDetails?.victimStatement}</p>
+              </div>
+
+              <div className="reference-section">
+                <h4>Police Report</h4>
+                <p>{caseData?.caseDetails?.policeReport}</p>
+              </div>
+
+              <div className="reference-section">
+                <h4>Your Role</h4>
+                <p>{caseData?.caseDetails?.courtProcedure}</p>
+              </div>
+            </aside>
+
+            <div className="debate-main">
+              <div className="debate-header">
+                <h2>{caseData?.title}</h2>
+                <div className="debate-stats">
+                  <span>{Math.floor(debate.length / 2)} rounds</span>
                 </div>
               </div>
-            )}
-            <div ref={debateEndRef} />
-          </div>
 
-          <div className="argument-input">
-            <textarea
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              placeholder="Present your legal argument or response..."
-              disabled={isLoading}
-              onKeyDown={(e) => {
-                if (e.ctrlKey && e.key === "Enter") {
-                  handleSubmitArgument();
-                }
-              }}
-            />
-            <div className="input-actions">
-              <button
-                onClick={handleSubmitArgument}
-                disabled={!userInput.trim() || isLoading}
-                className="submit-btn"
-              >
-                Submit Argument
-              </button>
-              <button
-                onClick={handleEndDebate}
-                disabled={isLoading}
-                className="end-btn"
-              >
-                End Debate
-              </button>
+              <div className="debate-transcript">
+                {debate.map((msg, idx) => (
+                  <div key={idx} className={`debate-message ${msg.type}`}>
+                    <div className="speaker-badge">{msg.speaker}</div>
+                    <div className="message-text">{msg.text}</div>
+                  </div>
+                ))}
+                {isLoading && (
+                  <div className="debate-message loading">
+                    <div className="speaker-badge">Courtroom</div>
+                    <div className="message-text">
+                      <span className="typing-indicator">●●●</span>
+                    </div>
+                  </div>
+                )}
+                <div ref={debateEndRef} />
+              </div>
+
+              <div className="argument-input">
+                <textarea
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  placeholder="Present your legal argument or response..."
+                  disabled={isLoading}
+                  onKeyDown={(e) => {
+                    if (e.ctrlKey && e.key === "Enter") {
+                      handleSubmitArgument();
+                    }
+                  }}
+                />
+                <div className="input-actions">
+                  <button
+                    onClick={handleSubmitArgument}
+                    disabled={!userInput.trim() || isLoading}
+                    className="submit-btn"
+                  >
+                    Submit Argument
+                  </button>
+                  <button
+                    onClick={handleEndDebate}
+                    disabled={isLoading}
+                    className="end-btn"
+                  >
+                    End Debate
+                  </button>
+                </div>
+              </div>
+
+              {error && <div className="error-message">{error}</div>}
             </div>
           </div>
-
-          {error && <div className="error-message">{error}</div>}
         </div>
       )}
 

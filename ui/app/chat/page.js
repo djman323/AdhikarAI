@@ -141,16 +141,21 @@ export default function ChatPage() {
         }),
       });
 
-      const text = await response.text();
       let payload;
-
-      // Try to parse as JSON
-      try {
-        payload = JSON.parse(text);
-      } catch (parseError) {
-        // Not valid JSON - log what we got
-        console.error(`Backend returned non-JSON (${response.status}):`, text);
-        throw new Error(`Backend error (${response.status}): ${text.substring(0, 200) || "Empty response"}`);
+      const contentType = response.headers.get("content-type") || "";
+      
+      if (contentType.includes("application/json")) {
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          // JSON parse failed - backend returned invalid JSON
+          const text = await response.text();
+          throw new Error(`Backend error (${response.status}): ${text || "No response body"}`);
+        }
+      } else {
+        // Not JSON response, try to read as text
+        const text = await response.text();
+        throw new Error(`Backend error (${response.status}): ${text || "Invalid response type"}`);
       }
 
       if (!response.ok) {

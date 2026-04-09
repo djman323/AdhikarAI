@@ -1,8 +1,10 @@
 const DEFAULT_BACKEND_URL = "http://127.0.0.1:5000";
+const RAILWAY_BACKEND_FALLBACK = "http://adhikar-backend.railway.internal";
 
 export function getBackendBaseUrl() {
-  const dockerDefault = process.env.NODE_ENV === "production" ? "http://backend:5000" : DEFAULT_BACKEND_URL;
-  return (process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || dockerDefault).replace(/\/$/, "");
+  const productionDefault = process.env.RAILWAY_BACKEND_INTERNAL_URL || RAILWAY_BACKEND_FALLBACK;
+  const defaultBaseUrl = process.env.NODE_ENV === "production" ? productionDefault : DEFAULT_BACKEND_URL;
+  return (process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || defaultBaseUrl).replace(/\/$/, "");
 }
 
 export async function proxyJsonRequest(path, request) {

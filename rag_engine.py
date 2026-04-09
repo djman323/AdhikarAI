@@ -5,14 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from pypdf import PdfReader
+import fitz
 from rank_bm25 import BM25Okapi
 
 
 ROOT_DIR = Path(__file__).resolve().parent
-PDF_PATH = ROOT_DIR / "Indian Constitution.pdf"
 VECTOR_DIR = ROOT_DIR / "vectorstore"
 META_PATH = VECTOR_DIR / "metadata.json"
+INDEX_VERSION = 2
+MAX_PAGE_CHARS = 3000
 
 
 @dataclass
@@ -37,80 +38,113 @@ class ConstitutionRAGEngine:
         self.bm25: BM25Okapi | None = None
 
     def ensure_index(self) -> None:
-        if not PDF_PATH.exists():
-            raise FileNotFoundError(f"Constitution PDF not found at: {PDF_PATH}")
+        pdf_paths = self._discover_pdf_paths()
+        if not pdf_paths:
+            raise FileNotFoundError(f"No PDF files found in: {ROOT_DIR}")
 
-        if not META_PATH.exists():
-            self._build_index()
+        if self._needs_rebuild(pdf_paths):
+            self._build_index(pdf_paths)
 
         self._load_index()
 
-    def _build_index(self) -> None:
-        VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+    def _discover_pdf_paths(self) -> List[Path]:
+        return sorted(
+            [
+                p
+                for p in ROOT_DIR.glob("*.pdf")
+                if p.is_file()
+            ],
+            key=lambda p: p.name.lower(),
+        )
 
-        reader = PdfReader(str(PDF_PATH))
+    def _current_file_fingerprints(self, pdf_paths: List[Path]) -> List[Dict]:
+        fingerprints: List[Dict] = []
+        for path in pdf_paths:
+            stat = path.stat()
+            fingerprints.append(
+                {
+                    "name": path.name,
+                    "path": str(path),
+                    "mtime_ns": stat.st_mtime_ns,
+                    "size": stat.st_size,
+                }
+            )
+        return fingerprints
+
+    def _needs_rebuild(self, pdf_paths: List[Path]) -> bool:
+        if not META_PATH.exists():
+            return True
+
+        try:
+            with META_PATH.open("r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            return True
+
+        metadata = payload.get("index_metadata", {})
+        if int(metadata.get("index_version", 0)) != INDEX_VERSION:
+            return True
+
+        previous_files = metadata.get("files", [])
+        current_files = self._current_file_fingerprints(pdf_paths)
+        return previous_files != current_files
+
+    def _build_index(self, pdf_paths: List[Path]) -> None:
+        VECTOR_DIR.mkdir(parents=True, exist_ok=True)
 
         parent_payload: List[Dict] = []
         child_payload: List[Dict] = []
 
-        for parent_idx, page in enumerate(reader.pages):
-            parent_id = f"p-{parent_idx}"
-            page_number = parent_idx + 1
-            source = "Indian Constitution.pdf"
-            parent_text = (page.extract_text() or "").strip()
-            if not parent_text:
-                continue
+        for doc_idx, pdf_path in enumerate(pdf_paths):
+            with fitz.open(str(pdf_path)) as pdf:
+                for page_idx, page in enumerate(pdf):
+                    parent_id = f"p-{doc_idx}-{page_idx}"
+                    page_number = page_idx + 1
+                    source = pdf_path.name
 
-            section_hint = self._detect_section(parent_text)
+                    try:
+                        parent_text = (page.get_text("text") or "").strip()
+                    except Exception:
+                        continue
 
-            parent_payload.append(
-                {
-                    "id": parent_id,
-                    "page": page_number,
-                    "source": source,
-                    "section_hint": section_hint,
-                    "text": parent_text,
-                }
-            )
+                    if len(parent_text) > MAX_PAGE_CHARS:
+                        parent_text = parent_text[:MAX_PAGE_CHARS]
 
-            for child_offset, child_text in enumerate(self._split_text(parent_text, chunk_size=700, overlap=100)):
-                child_id = f"c-{parent_idx}-{child_offset}"
-                child_payload.append(
-                    {
-                        "id": child_id,
-                        "parent_id": parent_id,
-                        "page": page_number,
-                        "source": source,
-                        "section_hint": section_hint,
-                        "text": child_text.strip(),
-                    }
-                )
+                    if not parent_text:
+                        continue
 
-        parent_texts = [item["text"] for item in parent_payload]
-        parent_metas = [
-            {
-                "id": item["id"],
-                "page": item["page"],
-                "source": item["source"],
-                "section_hint": item["section_hint"],
-            }
-            for item in parent_payload
-        ]
-        child_texts = [item["text"] for item in child_payload]
-        child_metas = [
-            {
-                "id": item["id"],
-                "parent_id": item["parent_id"],
-                "page": item["page"],
-                "source": item["source"],
-                "section_hint": item["section_hint"],
-            }
-            for item in child_payload
-        ]
+                    section_hint = self._detect_section(parent_text)
+
+                    parent_payload.append(
+                        {
+                            "id": parent_id,
+                            "page": page_number,
+                            "source": source,
+                            "section_hint": section_hint,
+                            "text": parent_text,
+                        }
+                    )
+
+                    for child_offset, child_text in enumerate(self._split_text(parent_text, chunk_size=700, overlap=100)):
+                        child_id = f"c-{doc_idx}-{page_idx}-{child_offset}"
+                        child_payload.append(
+                            {
+                                "id": child_id,
+                                "parent_id": parent_id,
+                                "page": page_number,
+                                "source": source,
+                                "section_hint": section_hint,
+                                "text": child_text.strip(),
+                            }
+                        )
 
         with META_PATH.open("w", encoding="utf-8") as f:
             json.dump(
                 {
+                    "index_metadata": {
+                        "index_version": INDEX_VERSION,
+                        "files": self._current_file_fingerprints(pdf_paths),
+                    },
                     "parent_payload": parent_payload,
                     "child_payload": child_payload,
                 },
@@ -133,8 +167,8 @@ class ConstitutionRAGEngine:
         self.bm25 = BM25Okapi(self.child_tokens)
 
     def search(self, query: str, dense_k: int = 12, bm25_k: int = 12, final_k: int = 5) -> List[SearchResult]:
-        if not self.bm25:
-            raise RuntimeError("Index is not loaded.")
+        if not self.bm25 or not self.child_map:
+            return []
 
         tokenized_query = self._tokenize(query)
         bm25_scores = self.bm25.get_scores(tokenized_query)
@@ -171,6 +205,9 @@ class ConstitutionRAGEngine:
         return merged[:final_k]
 
     def build_context(self, results: List[SearchResult], max_parents: int = 4) -> Tuple[str, List[Dict]]:
+        if not results:
+            return "", []
+
         picked_parents: List[str] = []
         sources: List[Dict] = []
 
@@ -236,4 +273,4 @@ class ConstitutionRAGEngine:
             match = re.search(pattern, text)
             if match:
                 return match.group(1)
-        return "Constitution excerpt"
+        return "Document excerpt"

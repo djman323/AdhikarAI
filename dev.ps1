@@ -22,8 +22,13 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     throw "npm is required to run the Next.js UI. Install Node.js from https://nodejs.org/"
 }
 
+$npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+if (-not $npmCmd) {
+    throw "npm.cmd is required to run the Next.js UI. Install Node.js from https://nodejs.org/"
+}
+
 Push-Location $uiRoot
-npm install
+& $npmCmd install
 Pop-Location
 
 Write-Host "Starting Adhikar AI backend on http://127.0.0.1:$BackendPort"
@@ -36,10 +41,10 @@ $backendJob = Start-Job -Name "adhikar-backend" -ScriptBlock {
 
 Write-Host "Starting UI on http://127.0.0.1:$UiPort"
 $uiJob = Start-Job -Name "adhikar-ui" -ScriptBlock {
-    param($uiDirectory, $port)
+    param($uiDirectory, $npmCmdPath, $port)
     Set-Location $uiDirectory
-    npm run dev -- --hostname 127.0.0.1 --port $port
-} -ArgumentList $uiRoot, $UiPort
+    & $npmCmdPath run dev -- --hostname 127.0.0.1 --port $port
+} -ArgumentList $uiRoot, $npmCmd, $UiPort
 
 Write-Host ""
 Write-Host "Adhikar AI is running."

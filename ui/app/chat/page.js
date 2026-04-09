@@ -14,13 +14,6 @@ const QUICK_PROMPTS = [
   "Difference between Article 19 and Article 21.",
 ];
 
-const LAW_PILLARS = [
-  "Fundamental Rights",
-  "Writ Remedies",
-  "Judicial Review",
-  "Directive Principles",
-];
-
 function mapTurnsToMessages(turns) {
   return turns.flatMap((turn) => {
     const userMessage = {
@@ -191,69 +184,13 @@ export default function ChatPage() {
         <span className="scene-grid" />
       </div>
 
-      <section className="workspace-grid">
-        <aside className="info-panel">
-          <div className="panel-card panel-card--glass panel-card--intro">
-            <p className="panel-kicker">Chat Workspace</p>
-            <h2>Ask, compare, and reason through constitutional problems.</h2>
-            <p>
-              The interface is tuned for long-form legal inquiry, source citations, and quick follow-up prompts. It
-              stays focused while still feeling premium.
-            </p>
-          </div>
-
-          <div className="panel-card">
-            <div className="panel-header">
-              <h3>Legal pillars</h3>
-              <span className={`status-badge ${statusClass}`}>{status}</span>
-            </div>
-            <div className="pillar-list">
-              {LAW_PILLARS.map((pillar) => (
-                <span key={pillar} className="pillar-chip">
-                  {pillar}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="panel-card">
-            <div className="panel-header">
-              <h3>Session</h3>
-              <span className="session-id">ID: {sessionId}</span>
-            </div>
-            <p className="panel-note">Tone preset: {responseStyle.replace("_", " ")}</p>
-            <select className="tone-selector tone-selector--wide" value={responseStyle} onChange={(e) => setResponseStyle(e.target.value)}>
-              <option value="friendly_concise">Friendly & Concise</option>
-              <option value="student_friendly">Student Friendly</option>
-              <option value="short_formal">Formal & Brief</option>
-            </select>
-          </div>
-
-          <div className="panel-card panel-card--glow">
-            <h3>Quick entry</h3>
-            <div className="quick-prompts quick-prompts--stacked">
-              {QUICK_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="quick-prompt-btn quick-prompt-btn--wide"
-                  onClick={() => setQuery(prompt)}
-                  disabled={isSending}
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        </aside>
-
-        <section className="chat-panel">
+      <section className="workspace-grid workspace-grid--chat">
+        <section className="chat-panel chat-panel--maximized">
           <header className="chat-header">
             <div>
               <p className="chat-kicker">Constitution Chat</p>
-              <h2>Compose a question and let the system reason in context.</h2>
+              <h2>Ask your question.</h2>
             </div>
-            <p className="chat-subtitle">Source-linked answers, follow-up support, and a calm dark courtroom aesthetic.</p>
           </header>
 
           <div className="chat-container" ref={chatRef}>
@@ -311,9 +248,8 @@ export default function ChatPage() {
               <div className="controls-row">
                 <div className="status-info">
                   <div className={`status-badge ${statusClass}`}>{status}</div>
-                  <span className="session-id">ID: {sessionId}</span>
                 </div>
-                <div className="composer-meta">Enter to send, Shift+Enter for a new line</div>
+                <div className="composer-meta">Enter to send</div>
               </div>
 
               <form className="composer-form" onSubmit={submit}>

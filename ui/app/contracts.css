@@ -99,28 +99,6 @@
   font-size: 0.92rem;
 }
 
-.contracts-card select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%),
-    linear-gradient(135deg, var(--accent) 50%, transparent 50%);
-  background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 12px) calc(50% - 3px);
-  background-size: 6px 6px, 6px 6px;
-  background-repeat: no-repeat;
-  padding-right: 36px;
-}
-
-.contracts-card select option {
-  background-color: #172033;
-  color: #f4efe6;
-}
-
-.contracts-card select option:checked {
-  background-color: #273451;
-  color: #f7c782;
-}
-
 .contracts-card textarea {
   min-height: 88px;
   resize: vertical;

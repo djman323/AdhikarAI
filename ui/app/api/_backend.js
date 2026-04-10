@@ -1,8 +1,19 @@
 const DEFAULT_BACKEND_URL = "http://127.0.0.1:5000";
 
 export function getBackendBaseUrl() {
-  const dockerDefault = process.env.NODE_ENV === "production" ? "http://backend:5000" : DEFAULT_BACKEND_URL;
-  return (process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || dockerDefault).replace(/\/$/, "");
+  const configuredUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (configuredUrl) {
+    return configuredUrl.replace(/\/$/, "");
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "BACKEND_API_URL must be set on Railway to the public backend service URL. " +
+        "The default docker host (http://backend:5000) does not work on Railway."
+    );
+  }
+
+  return DEFAULT_BACKEND_URL;
 }
 
 export async function proxyJsonRequest(path, request) {

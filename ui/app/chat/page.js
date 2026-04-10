@@ -141,21 +141,18 @@ export default function ChatPage() {
         }),
       });
 
-      let payload;
       const contentType = response.headers.get("content-type") || "";
-      
+      const rawBody = await response.text();
+      let payload;
+
       if (contentType.includes("application/json")) {
         try {
-          payload = await response.json();
-        } catch (parseError) {
-          // JSON parse failed - backend returned invalid JSON
-          const text = await response.text();
-          throw new Error(`Backend error (${response.status}): ${text || "No response body"}`);
+          payload = rawBody ? JSON.parse(rawBody) : {};
+        } catch {
+          throw new Error(`Backend error (${response.status}): ${rawBody || "Invalid JSON response"}`);
         }
       } else {
-        // Not JSON response, try to read as text
-        const text = await response.text();
-        throw new Error(`Backend error (${response.status}): ${text || "Invalid response type"}`);
+        throw new Error(`Backend error (${response.status}): ${rawBody || "Invalid response type"}`);
       }
 
       if (!response.ok) {

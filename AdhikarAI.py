@@ -112,6 +112,16 @@ def _gemini_api_keys() -> List[str]:
     return list(dict.fromkeys(GEMINI_API_KEY_CANDIDATES))
 
 
+def _startup_diagnostics() -> None:
+    api_keys = _gemini_api_keys()
+    print(
+        "[INFO] Gemini config: "
+        f"keys={len(api_keys)} "
+        f"default_model={GEMINI_MODEL} "
+        f"fallback_models={_gemini_candidates()}"
+    )
+
+
 def _extract_text(output: Any) -> str:
     if isinstance(output, str):
         return output
@@ -389,5 +399,6 @@ def chat() -> Any:
 if __name__ == "__main__":
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "5000"))
+    _startup_diagnostics()
     print(f"[INFO] Starting Adhikar AI backend on http://{host}:{port}")
     app.run(debug=True, host=host, port=port)

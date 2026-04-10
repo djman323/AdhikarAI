@@ -1,4 +1,5 @@
 const DEFAULT_BACKEND_URL = "http://127.0.0.1:5000";
+const RAILWAY_PRIVATE_BACKEND_URL = "http://adhikar-backend.railway.internal:5000";
 
 export function getBackendBaseUrl() {
   const configuredUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -7,10 +8,7 @@ export function getBackendBaseUrl() {
   }
 
   if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "BACKEND_API_URL must be set on Railway to the public backend service URL. " +
-        "The default docker host (http://backend:5000) does not work on Railway."
-    );
+    return RAILWAY_PRIVATE_BACKEND_URL;
   }
 
   return DEFAULT_BACKEND_URL;
@@ -49,6 +47,22 @@ export async function proxyJsonRequest(path, request) {
   const response = await fetch(backendUrl, init);
   const contentType = response.headers.get("content-type") || "application/json";
   const body = await response.text();
+
+  if (!contentType.includes("application/json")) {
+    return new Response(
+      JSON.stringify({
+        error: body || "Backend returned a non-JSON response",
+        upstream_status: response.status,
+        upstream_content_type: contentType,
+      }),
+      {
+        status: response.status,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  }
 
   return new Response(body, {
     status: response.status,
